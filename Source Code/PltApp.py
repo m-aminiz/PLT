@@ -1,7 +1,13 @@
-# In The Name Of Allah
-# Programmers: Ali Salimi and Amin Izadi
-# Description: Pet Labeling Tool Application
+"""PLT: a PET/CT annotation and model-review tool.
 
+PLT was developed for three-dimensional lesion annotation in Hodgkin
+lymphoma PET/CT studies. It supports fused PET/CT visualization,
+threshold-based candidate regions, 2D and 3D region growing, ROI/SUV
+inspection, manual correction, and sparse storage of annotation masks.
+
+This repository contains research software and is not intended for
+independent clinical use.
+"""
 
 #imports
 from tkinter import *
@@ -19,6 +25,7 @@ import copy
 from collections import defaultdict
 import math
 import pylibjpeg
+from pathlib import Path
 
 
 
@@ -28,6 +35,7 @@ VERSION = '7'
 
 
 class ImageProcessing:
+    """DICOM loading, thresholding, and region-growing operations."""
     def __init__(self):
         self.slices = 0
         return
@@ -53,8 +61,6 @@ class ImageProcessing:
                     slice_thickness = first_file.SliceThickness
                     patient_position.append(first_file.ImagePositionPatient)
                     radio = first_file.RadiopharmaceuticalInformationSequence
-                    print(radio)
-                    print('ffffffffffffffffffffffffffffffffffffff')
                     
                     if type == 'PET':
                         if hasattr(first_file,'PatientID'):
@@ -72,7 +78,6 @@ class ImageProcessing:
                         if hasattr(first_file,'RadiopharmaceuticalInformationSequence'):
                             radio = first_file.RadiopharmaceuticalInformationSequence
                             metadata['RadionuclideTotalDose'] = float(radio.RadionuclideTotalDose)
-                            print(metadata['RadionuclideTotalDose'])
                             
                     if type == 'CT':
                         rescale_slope = first_file.RescaleSlope
@@ -129,7 +134,6 @@ class ImageProcessing:
         return barray
 
     def RG(self, volume, coordinate, neighbor_type):
-        #initialization
         volume_temp = copy.copy(volume)
         x = coordinate[0]
         y = coordinate[1]
@@ -137,23 +141,22 @@ class ImageProcessing:
         value = volume_temp[x][y][z]
         segment = set()
         q = queue.Queue()
-        #doing
+        
         volume_temp[x][y][z] = -1
         segment.add(coordinate)
         q.put(coordinate)
         while not q.empty():
             point = q.get()
             self.G(point, volume_temp, segment, q, value, neighbor_type)
-        #ending
+        
         return segment
 
     def G(self, point, volume, segment, q, value, neighbor_type):
-        #initialization
         x = point[0]
         y = point[1]
         z = point[2]
         neighbors = self.getNeighbors(x, y, z, neighbor_type)
-        #doing
+        
         for n in neighbors:
             nx = n[0]
             ny = n[1]
@@ -165,7 +168,7 @@ class ImageProcessing:
                     q.put(n)
             except:
                 continue
-        #ending
+        
         return
 
     def getNeighbors(self, x, y, z, neighbor_type):
@@ -231,29 +234,27 @@ class ImageProcessing:
         return neighbors
 
     def RG2D(self, slice, coordinate, neighbor_type):
-        #initialization
         slice_temp = copy.copy(slice)
         x = coordinate[0]
         y = coordinate[1]
         value = slice_temp[x][y]
         segment = set()
         q = queue.Queue()
-        #doing
+        
         slice_temp[x][y] = -1
         segment.add(coordinate)
         q.put(coordinate)
         while not q.empty():
             point = q.get()
             self.G2D(point, slice_temp, segment, q, value, neighbor_type)
-        #ending
+        
         return segment
 
     def G2D(self, point, slice, segment, q, value, neighbor_type):
-        #initialization
         x = point[0]
         y = point[1]
         neighbors = self.getNeighbors2D(x, y, neighbor_type)
-        #doing
+        
         for n in neighbors:
             nx = n[0]
             ny = n[1]
@@ -264,7 +265,7 @@ class ImageProcessing:
                     q.put(n)
             except:
                 continue
-        #ending
+        
         return
 
     def getNeighbors2D(self, x, y, neighbor_type):
@@ -290,6 +291,7 @@ class ImageProcessing:
 
 
 class Dicom:
+    """PET/CT volumes, annotations, navigation state, and persistence."""
     def __init__(self):
         self.pet_path = None
         self.ct_path = None
@@ -327,7 +329,6 @@ class Dicom:
         return
 
     def getSlices(self, view=None, slice_number=None, threshold=None, ct_window=None):
-        #initialization
         if view == None:
             view = self.current_view
         if slice_number == None:
@@ -367,7 +368,7 @@ class Dicom:
             slice_number = self.pet_size[0] - 1
         elif view == 'coronal' and slice_number >= self.pet_size[1]:
             slice_number = self.pet_size[1] - 1
-        elif view == 'sagital' and slice_number >= self.pet_size[2]:
+        elif view == 'sagittal' and slice_number >= self.pet_size[2]:
             slice_number = self.pet_size[2] - 1
         self.current_slice_number = slice_number
 
@@ -389,7 +390,7 @@ class Dicom:
                 norm_coord = (slice_number - m_l)/ct_actual_size
                 actual_coord = round(norm_coord * self.ct_size[0])
                 ct_slice = self.ct_volume[actual_coord]
-        elif view == 'coronal' or view == 'sagital':
+        elif view == 'coronal' or view == 'sagittal':
             ct_actual_size = round(self.ct_size[1] * self.ct_pixel_spacing / self.pet_pixel_spacing)
             m_l = int((self.pet_size[1] - ct_actual_size)/2)
             m_r = (self.pet_size[1] - ct_actual_size) - m_l
@@ -436,7 +437,7 @@ class Dicom:
                 'x': self.pet_pixel_spacing,
                 'y': self.pet_pixel_spacing
             }
-        elif view == 'coronal' or view == 'sagital':
+        elif view == 'coronal' or view == 'sagittal':
             result['pet'] = {
                 'slice': pet_slice,
                 'x': self.pet_slice_thickness,
@@ -558,7 +559,7 @@ class Dicom:
             for sv in segment_voxels:
                 changes.append(['label_volume', sv, 0.5, 1])
                 self.label_volume[sv[0]][sv[1]][sv[2]] = 1
-            message = 'suspect segment is changed to anomal.'
+            message = 'suspect segment is changed to tumoral.'
         elif condition == (1, 1, 'suspect'):
             changes = list()
             segment_voxels = self.ip.RG(self.label_volume, coordinate, neighbor_type)
@@ -685,7 +686,7 @@ class Dicom:
             for sp in segment_pixels:
                 changes.append(['label_volume', (self.current_slice_number,sp[0],sp[1]), 0.5, 1])
                 self.label_volume[self.current_slice_number][sp[0]][sp[1]] = 1
-            message = 'suspect segment is changed to anomal.'
+            message = 'suspect segment is changed to tumoral.'
         elif condition == (1, 1, 'suspect'):
             changes = list()
             segment_pixels = self.ip.RG2D(self.label_volume[self.current_slice_number], coordinate, neighbor_type)
@@ -777,7 +778,7 @@ class Dicom:
                         cond2 = dim >= np.array([0,0,0])
                         if radius >= dist and all(cond1) and all(cond2):
                             uptakes = np.append(uptakes,self.pet_volume[z][x][y])
-        elif self.current_view == 'sagital':
+        elif self.current_view == 'sagittal':
             for z in range(coordinate[0] - radius_ps, coordinate[0] + radius_ps + 1):
                 for x in range(coordinate[1] - radius_st, coordinate[1] + radius_st + 1):
                     for y in range(coordinate[2] - radius_ps, coordinate[2] + radius_ps + 1):
@@ -887,18 +888,18 @@ class Dicom:
         if self.current_view == 'axial':
             if view == 'coronal':
                 result = np.rot90(volume, 1, (0, 1))
-            elif view == 'sagital':
+            elif view == 'sagittal':
                 result = np.rot90(np.rot90(volume, 1, (2, 0)), 1, (1, 2))
             else:
                 result = volume
         elif self.current_view == 'coronal':
             if view == 'axial':
                 result = np.rot90(volume,1,(1,0))
-            elif view == 'sagital':
+            elif view == 'sagittal':
                 result = np.rot90(volume,1,(2,0))
             else:
                 result = volume
-        elif self.current_view == 'sagital':
+        elif self.current_view == 'sagittal':
             if view == 'axial':
                 result = np.rot90(np.rot90(volume,1,(2,1)),1,(0,2))
             elif view == 'coronal':
@@ -909,6 +910,7 @@ class Dicom:
 
 
 class PltApp:
+    """Tkinter interface for viewing and editing PET/CT annotations."""
     def __init__(self, master):
         self.dicom = Dicom()
         self.paths = {
@@ -921,7 +923,8 @@ class PltApp:
         self.mask_palette = [0, 0, 0]*128 + [255, 0, 255]*128
         self.anomality_palette = [0, 0, 0]*26 + [0, 255, 0]*51 + [255, 255, 0]*51 + [255, 127, 0]*51 + [255, 255, 0]*51 + [255, 0, 0]*26
         self.image_shape = None
-        self.roi_image = Image.open('roi.png')
+        BASE_DIR = Path(__file__).resolve().parent
+        self.roi_image = Image.open(BASE_DIR / "roi.png")
 
         self.slice_number = IntVar()
         self.image_view = StringVar()
@@ -1048,12 +1051,12 @@ class PltApp:
         variable=self.image_view, command=self.changeView)
         self.radiobutton_coronal = ttk.Radiobutton(self.frame_view, text='Coronal', value='coronal',
         variable=self.image_view, command=self.changeView)
-        self.radiobutton_sagital = ttk.Radiobutton(self.frame_view, text='Sagital', value='sagital',
+        self.radiobutton_sagittal = ttk.Radiobutton(self.frame_view, text='Sagittal', value='sagittal',
         variable=self.image_view, command=self.changeView)
         #
         self.radiobutton_axial.pack(side=LEFT)
         self.radiobutton_coronal.pack(side=LEFT)
-        self.radiobutton_sagital.pack(side=LEFT)
+        self.radiobutton_sagittal.pack(side=LEFT)
 
         #frame_pet
         self.chechbutton_pet = ttk.Checkbutton(self.frame_pet, text="Pet", width=6, variable=self.pet_show,
@@ -1133,7 +1136,7 @@ class PltApp:
         self.scale_threshold = ttk.Scale(self.frame_threshold, orient=HORIZONTAL, from_=0, to=100, length=100,
         variable=self.binary_threshold, command=self.changeBinaryThreshold)
         self.entry_threshold = ttk.Entry(self.frame_threshold, textvariable=self.binary_threshold, width=5)
-        self.label_labaling_percent = ttk.Label(self.frame_threshold, text='%   ')
+        self.label_labeling_percent = ttk.Label(self.frame_threshold, text='%   ')
         self.button_increase = ttk.Button(self.frame_threshold, text='+', width=2,
         command=self.increaseBinaryThreshold)
         self.button_decrease = ttk.Button(self.frame_threshold, text='-', width=2,
@@ -1144,7 +1147,7 @@ class PltApp:
         self.label_threshold.pack(side=LEFT)
         self.scale_threshold.pack(side=LEFT)
         self.entry_threshold.pack(side=LEFT)
-        self.label_labaling_percent.pack(side=LEFT)
+        self.label_labeling_percent.pack(side=LEFT)
         self.button_increase.pack(side=LEFT)
         self.button_decrease.pack(side=LEFT)
 
@@ -1631,7 +1634,7 @@ class PltApp:
             #
             self.radiobutton_axial.configure(state='normal')
             self.radiobutton_coronal.configure(state='normal')
-            self.radiobutton_sagital.configure(state='normal')
+            self.radiobutton_sagittal.configure(state='normal')
             self.radiobutton_pet_original.configure(state='normal')
             self.radiobutton_pet_inverse.configure(state='normal')
             self.radiobutton_pet_fire.configure(state='normal')
@@ -1681,7 +1684,7 @@ class PltApp:
             #
             self.radiobutton_axial.configure(state='disable')
             self.radiobutton_coronal.configure(state='disable')
-            self.radiobutton_sagital.configure(state='disable')
+            self.radiobutton_sagittal.configure(state='disable')
             self.radiobutton_pet_original.configure(state='disable')
             self.radiobutton_pet_inverse.configure(state='disable')
             self.radiobutton_pet_fire.configure(state='disable')
@@ -1750,9 +1753,9 @@ class PltApp:
             self.setInfo('new dicom.')
             self.setState(True)
             self.updateFrame()
-            messagebox.showinfo(title="Open", message='Opening was successfull.')
+            messagebox.showinfo(title="Open", message='Opening was successful.')
         except Exception as e:
-            print(e)
+            print(f"Error opening study: {e}")
             messagebox.showerror(title="Can't Open", message='File is not suitable!')
         return
 
@@ -1762,9 +1765,9 @@ class PltApp:
             if save:
                 try:
                     self.dicom.save(self.paths['label'])
-                    messagebox.showinfo(title="Save", message='Saving was successfull.')
+                    messagebox.showinfo(title="Save", message='Saving was successful.')
                 except Exception as e:
-                    print(e)
+                    print(f"Error saving labels: {e}")
                     messagebox.showerror(title="Can't Save", message='Saving is not applicable!')
         else:
             messagebox.showinfo(title="Save", message='There is nothing for saving!')
